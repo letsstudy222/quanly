@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BuildLedger – Quản lý Vật tư & Công nợ Công trình</title>
+<meta name="description" content="Hệ thống quản lý vật tư xây dựng, dự án và công nợ nhà cung cấp / khách hàng.">
+
+<!-- Fonts (Be Vietnam Pro: hỗ trợ đầy đủ dấu tiếng Việt) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+<!-- Tailwind CSS (Play CDN) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  if (window.tailwind) tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['"Be Vietnam Pro"', 'system-ui', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace']
+        },
+        boxShadow: { card: '0 1px 2px rgb(15 23 42 / .04), 0 1px 3px rgb(15 23 42 / .06)' }
+      }
+    }
+  };
+</script>
+
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+
+<style>
+  /* ---------- Custom scrollbars ---------- */
+  * { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: #94a3b8; border: 3px solid transparent; background-clip: padding-box; }
+  .sidebar-scroll { scrollbar-color: #334155 transparent; }
+  .sidebar-scroll::-webkit-scrollbar-thumb { background: #334155; border: 3px solid transparent; background-clip: padding-box; }
+
+  /* ---------- Tab switch transition ---------- */
+  .view-enter { animation: viewIn .35s cubic-bezier(.2,.7,.2,1); }
+  @keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- Modal transitions ---------- */
+  .modal-wrap .modal-backdrop { opacity: 0; transition: opacity .2s ease; }
+  .modal-wrap .modal-panel { opacity: 0; transform: translateY(18px) scale(.985); transition: opacity .22s ease, transform .22s cubic-bezier(.2,.7,.2,1); }
+  .modal-wrap.open .modal-backdrop { opacity: 1; }
+  .modal-wrap.open .modal-panel { opacity: 1; transform: none; }
+
+  /* ---------- Toasts ---------- */
+  .toast { animation: toastIn .28s cubic-bezier(.2,.7,.2,1); }
+  .toast.leaving { opacity: 0; transform: translateX(16px); transition: all .25s ease; }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- Form validation states ---------- */
+  .is-invalid { border-color: #f43f5e !important; box-shadow: 0 0 0 3px rgb(244 63 94 / .14) !important; }
+  .is-valid { border-color: #10b981; }
+
+  .num { font-variant-numeric: tabular-nums; }
+  .bar-fill { transition: width .6s cubic-bezier(.2,.7,.2,1); }
+  tbody tr { transition: background-color .15s ease; }
+  [data-lucide] { width: 1em; height: 1em; }
+  svg.lucide { flex-shrink: 0; }
+</style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 font-sans antialiased">
+
+<!-- Mobile overlay -->
+<div id="sidebar-overlay" class="fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm hidden lg:hidden" data-action="toggle-sidebar"></div>
+
+<!-- ================= SIDEBAR ================= -->
+<aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-64 bg-slate-900 text-slate-300 flex flex-col -translate-x-full lg:translate-x-0 transition-transform duration-300">
+  <div class="h-16 flex items-center gap-3 px-5 border-b border-white/5">
+    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 grid place-items-center text-white shadow-lg shadow-emerald-900/40">
+      <i data-lucide="building-2" class="!w-5 !h-5"></i>
+    </div>
+    <div class="leading-tight">
+      <div class="text-white font-semibold tracking-tight">BuildLedger</div>
+      <div class="text-[11px] text-slate-400">Vật tư · Dự án · Công nợ</div>
+    </div>
+  </div>
+
+  <nav id="nav" class="flex-1 overflow-y-auto sidebar-scroll px-3 py-5 space-y-1"></nav>
+
+  <div class="p-4 border-t border-white/5 space-y-3">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-full bg-slate-700 grid place-items-center text-sm font-semibold text-white">KT</div>
+      <div class="min-w-0 leading-tight">
+        <div class="text-sm text-white font-medium truncate">Phòng Kế toán</div>
+        <div class="text-[11px] text-slate-400 truncate">Cty TNHH XD Phú An Khang</div>
+      </div>
+    </div>
+    <button data-action="reset-data" class="w-full flex items-center justify-center gap-2 text-xs text-slate-400 hover:text-white hover:bg-white/5 rounded-lg py-2 transition">
+      <i data-lucide="rotate-ccw"></i> Khôi phục dữ liệu mẫu
+    </button>
+  </div>
+</aside>
+
+<!-- ================= MAIN ================= -->
+<div class="lg:pl-64 min-h-screen flex flex-col">
+  <header class="sticky top-0 z-20 h-16 bg-white/85 backdrop-blur border-b border-slate-200 flex items-center gap-3 px-4 sm:px-6 lg:px-8">
+    <button data-action="toggle-sidebar" class="lg:hidden -ml-1 p-2 rounded-lg text-slate-600 hover:bg-slate-100" aria-label="Mở menu">
+      <i data-lucide="menu" class="!w-5 !h-5"></i>
+    </button>
+    <div class="min-w-0 flex-1">
+      <h1 id="page-title" class="text-base sm:text-lg font-semibold text-slate-900 truncate">Tổng quan</h1>
+      <p id="page-sub" class="text-xs text-slate-500 truncate hidden sm:block"></p>
+    </div>
+    <div id="today-label" class="hidden md:flex items-center gap-2 text-sm text-slate-500"></div>
+    <button data-action="nav" data-view="dashboard" class="relative p-2 rounded-lg text-slate-600 hover:bg-slate-100" aria-label="Cảnh báo">
+      <i data-lucide="bell" class="!w-5 !h-5"></i>
+      <span id="bell-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-semibold grid place-items-center ring-2 ring-white"></span>
+    </button>
+  </header>
+
+  <main id="view" class="flex-1 p-4 sm:p-6 lg:p-8"></main>
+
+  <footer class="px-4 sm:px-6 lg:px-8 py-4 text-xs text-slate-400 border-t border-slate-200">
+    Dữ liệu được lưu cục bộ trên trình duyệt (localStorage) · Sẵn sàng kết nối REST API / Firebase
+  </footer>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-root" class="fixed z-[60] bottom-4 right-4 left-4 sm:left-auto flex flex-col gap-2 items-stretch sm:items-end pointer-events-none"></div>
+
+<script>
+/* =====================================================================
+ *  BuildLedger — Construction Materials & Project Debt Management
+ *  Kiến trúc: 1 file, không build step.
+ *    1. Utilities          – định dạng tiền tệ, ngày, escape HTML
+ *    2. Seed data          – dữ liệu mẫu ngành xây dựng Việt Nam
+ *    3. Store              – state + persistence (localStorage)
+ *    4. API layer          – điểm tích hợp backend (REST / Firebase)
+ *    5. Selectors          – tính toán dẫn xuất (tồn kho, công nợ, cảnh báo)
+ *    6. UI primitives      – modal, toast, form validation, badges
+ *    7. Views              – Dashboard, Inventory, Projects, Suppliers, Ledger
+ *    8. Modals             – Vật tư, Thanh toán, Xuất vật tư, Nhà cung cấp
+ *    9. Router & events    – chuyển tab không reload, event delegation
+ * ===================================================================== */
+
+/* ============ 1. UTILITIES ============ */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const nf = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 3 });
+const fmtNum = n => nf.format(n);
+const fmtVND = n => new Intl.NumberFormat('vi-VN').format(Math.round(n)) + ' ₫';
+const fmtCompact = n => {
+  const a = Math.abs(n);
+  if (a >= 1e9) return (n / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 }) + ' tỷ';
+  if (a >= 1e6) return (n / 1e6).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + ' tr';
+  return new Intl.NumberFormat('vi-VN').format(Math.round(n));
+};
+const isoOf = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const todayISO = () => isoOf(new Date());
+const addDays = n => { const d = new Date(); d.setDate(d.getDate() + n); return isoOf(d); };
+const fmtDate = s => s ? s.split('-').reverse().join('/') : '—';
+const dayDiff = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+const daysFromToday = s => dayDiff(todayISO(), s);
+const uid = p => p + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 5);
+const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
+const round3 = n => Math.round(n * 1000) / 1000;
+const initials = s => s.replace(/^(Công ty|Cty|CP|TNHH|NPP|Đại lý|Nhà máy)\s+/gi, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+
+/* ============ 2. SEED DATA ============ */
+const CATEGORIES = {
+  'Xi măng':   { cls: 'bg-slate-100 text-slate-700 ring-slate-200',   bar: 'bg-slate-500' },
+  'Cát':       { cls: 'bg-amber-50 text-amber-700 ring-amber-200',    bar: 'bg-amber-500' },
+  'Đá':        { cls: 'bg-stone-100 text-stone-700 ring-stone-200',   bar: 'bg-stone-500' },
+  'Gạch':      { cls: 'bg-orange-50 text-orange-700 ring-orange-200', bar: 'bg-orange-500' },
+  'Thép':      { cls: 'bg-sky-50 text-sky-700 ring-sky-200',          bar: 'bg-sky-600' },
+  'Sơn':       { cls: 'bg-violet-50 text-violet-700 ring-violet-200', bar: 'bg-violet-500' },
+  'Điện nước': { cls: 'bg-cyan-50 text-cyan-700 ring-cyan-200',       bar: 'bg-cyan-600' }
+};
+const UNITS = ['Bao', 'm³', 'Tấn', 'Viên', 'Thùng', 'Cây', 'Cuộn', 'Kg', 'm²', 'Bộ'];
+const PAY_METHODS = ['Chuyển khoản', 'Ủy nhiệm chi', 'Tiền mặt', 'Bù trừ công nợ'];
+
+function buildSeed() {
+  const suppliers = [
+    { id: 's1', name: 'Công ty CP Xi măng Vicem Hà Tiên', contact: 'Nguyễn Văn Hùng', phone: '0903 412 587', types: ['Xi măng'], address: 'TP. Thủ Đức, TP.HCM', terms: 30 },
+    { id: 's2', name: 'Đại lý Thép Hòa Phát – Phú Mỹ', contact: 'Trần Thị Mai Anh', phone: '0918 225 690', types: ['Thép'], address: 'TX. Phú Mỹ, Bà Rịa – Vũng Tàu', terms: 45 },
+    { id: 's3', name: 'Công ty TNHH VLXD Thành Đạt', contact: 'Lê Quang Vinh', phone: '0936 781 004', types: ['Cát', 'Đá'], address: 'TP. Biên Hòa, Đồng Nai', terms: 15 },
+    { id: 's4', name: 'Nhà máy Gạch Tuynel Phước Tân', contact: 'Phạm Minh Tuấn', phone: '0977 340 118', types: ['Gạch'], address: 'TP. Biên Hòa, Đồng Nai', terms: 30 },
+    { id: 's5', name: 'NPP Nhựa Bình Minh – Tân Phú', contact: 'Võ Thị Thanh Hà', phone: '0909 556 732', types: ['Điện nước'], address: 'Q. Tân Phú, TP.HCM', terms: 30 },
+    { id: 's6', name: 'Đại lý Cáp điện Cadivi Minh Long', contact: 'Đặng Hoàng Long', phone: '0283 862 4417', types: ['Điện nước'], address: 'Q. 10, TP.HCM', terms: 21 },
+    { id: 's7', name: 'Đại lý Sơn Minh Phát', contact: 'Huỳnh Ngọc Phát', phone: '0987 112 365', types: ['Sơn'], address: 'TP. Dĩ An, Bình Dương', terms: 30 }
+  ];
+
+  const materials = [
+    { id: 'm1',  code: 'XM-001',   name: 'Xi măng Vicem Hà Tiên PCB40',     category: 'Xi măng',   unit: 'Bao',   stock: 180,   minStock: 300,   price: 92000,    supplierId: 's1' },
+    { id: 'm2',  code: 'XM-002',   name: 'Xi măng Nghi Sơn PCB40',          category: 'Xi măng',   unit: 'Bao',   stock: 1250,  minStock: 400,   price: 88000,    supplierId: 's1' },
+    { id: 'm3',  code: 'CAT-001',  name: 'Cát vàng bê tông (hạt to)',       category: 'Cát',       unit: 'm³',    stock: 45,    minStock: 60,    price: 420000,   supplierId: 's3' },
+    { id: 'm4',  code: 'CAT-002',  name: 'Cát san lấp',                     category: 'Cát',       unit: 'm³',    stock: 320,   minStock: 100,   price: 180000,   supplierId: 's3' },
+    { id: 'm5',  code: 'DA-001',   name: 'Đá 1x2 Biên Hòa',                 category: 'Đá',        unit: 'm³',    stock: 210,   minStock: 80,    price: 380000,   supplierId: 's3' },
+    { id: 'm15', code: 'DA-002',   name: 'Đá mi bụi',                       category: 'Đá',        unit: 'm³',    stock: 150,   minStock: 60,    price: 290000,   supplierId: 's3' },
+    { id: 'm6',  code: 'GACH-001', name: 'Gạch đặc tuynel A1 (8x8x18)',     category: 'Gạch',      unit: 'Viên',  stock: 48000, minStock: 20000, price: 1350,     supplierId: 's4' },
+    { id: 'm7',  code: 'GACH-002', name: 'Gạch ống 4 lỗ (8x8x18)',          category: 'Gạch',      unit: 'Viên',  stock: 12000, minStock: 15000, price: 1150,     supplierId: 's4' },
+    { id: 'm11', code: 'GACH-003', name: 'Gạch block bê tông 390x190x190',  category: 'Gạch',      unit: 'Viên',  stock: 8500,  minStock: 3000,  price: 6800,     supplierId: 's4' },
+    { id: 'm8',  code: 'THEP-016', name: 'Thép Hòa Phát CB400-V D16',       category: 'Thép',      unit: 'Tấn',   stock: 18.5,  minStock: 10,    price: 15600000, supplierId: 's2' },
+    { id: 'm9',  code: 'THEP-010', name: 'Thép Pomina CB300 D10',           category: 'Thép',      unit: 'Tấn',   stock: 6.2,   minStock: 8,     price: 15900000, supplierId: 's2' },
+    { id: 'm10', code: 'THEP-008', name: 'Thép cuộn Việt Nhật D8',          category: 'Thép',      unit: 'Tấn',   stock: 12,    minStock: 5,     price: 16200000, supplierId: 's2' },
+    { id: 'm12', code: 'SON-001',  name: 'Sơn Dulux Weathershield (18L)',   category: 'Sơn',       unit: 'Thùng', stock: 64,    minStock: 20,    price: 1850000,  supplierId: 's7' },
+    { id: 'm13', code: 'DN-001',   name: 'Ống nhựa Bình Minh PVC D90',      category: 'Điện nước', unit: 'Cây',   stock: 340,   minStock: 100,   price: 145000,   supplierId: 's5' },
+    { id: 'm14', code: 'DN-002',   name: 'Dây điện Cadivi CV 2.5mm² (100m)', category: 'Điện nước', unit: 'Cuộn',  stock: 42,    minStock: 30,    price: 1120000,  supplierId: 's6' }
+  ];
+
+  const projects = [
+    { id: 'p1', code: 'DA-2401', name: 'Vinhomes Grand Park – Hoàn thiện tòa S3.02', location: 'TP. Thủ Đức, TP.HCM', client: 'Công ty CP Vinhomes', manager: 'KS. Lê Hoàng Nam', contract: 14800000000, status: 'active', progress: 78, start: addDays(-240), end: addDays(45),
+      alloc: [{ m: 'm2', planned: 3000, used: 2350 }, { m: 'm6', planned: 120000, used: 96000 }, { m: 'm12', planned: 180, used: 132 }, { m: 'm13', planned: 600, used: 410 }] },
+    { id: 'p2', code: 'DA-2403', name: 'Nhà xưởng KCN VSIP II – Lô C7', location: 'TX. Tân Uyên, Bình Dương', client: 'Công ty TNHH Kỹ thuật Sao Việt', manager: 'KS. Trịnh Văn Khải', contract: 22500000000, status: 'active', progress: 82, start: addDays(-150), end: addDays(-5),
+      alloc: [{ m: 'm8', planned: 90, used: 84 }, { m: 'm9', planned: 40, used: 38 }, { m: 'm5', planned: 650, used: 590 }, { m: 'm1', planned: 4000, used: 3600 }] },
+    { id: 'p3', code: 'DA-2405', name: 'Trường THCS Hố Nai 3 – Khối lớp học 4 tầng', location: 'H. Trảng Bom, Đồng Nai', client: 'Ban QLDA ĐTXD huyện Trảng Bom', manager: 'KS. Nguyễn Thị Hồng', contract: 9600000000, status: 'active', progress: 91, start: addDays(-200), end: addDays(20),
+      alloc: [{ m: 'm1', planned: 2600, used: 2450 }, { m: 'm3', planned: 380, used: 360 }, { m: 'm7', planned: 60000, used: 57000 }, { m: 'm10', planned: 22, used: 21 }] },
+    { id: 'p4', code: 'DA-2312', name: 'Biệt thự ven sông Thảo Điền – Lô B12', location: 'P. An Khánh, TP.HCM', client: 'Ông Nguyễn Minh Khang', manager: 'KS. Lê Hoàng Nam', contract: 6250000000, status: 'completed', progress: 100, start: addDays(-330), end: addDays(-40),
+      alloc: [{ m: 'm1', planned: 1200, used: 1180 }, { m: 'm6', planned: 85000, used: 84200 }, { m: 'm12', planned: 60, used: 58 }, { m: 'm14', planned: 45, used: 45 }] },
+    { id: 'p5', code: 'DA-2406', name: 'KDC Long Hậu 3 – Hạ tầng kỹ thuật', location: 'H. Cần Giuộc, Long An', client: 'Công ty CP Phát triển KĐT Long Hậu', manager: 'KS. Phan Đức Thịnh', contract: 18400000000, status: 'active', progress: 12, start: addDays(-120), end: addDays(240),
+      alloc: [{ m: 'm4', planned: 5000, used: 900 }, { m: 'm15', planned: 2400, used: 520 }, { m: 'm13', planned: 1800, used: 260 }, { m: 'm11', planned: 30000, used: 4200 }] },
+    { id: 'p6', code: 'DA-2402', name: 'Cải tạo văn phòng Green Office – Ecopark', location: 'H. Văn Giang, Hưng Yên', client: 'Công ty TNHH Green Office', manager: 'KS. Trịnh Văn Khải', contract: 2100000000, status: 'completed', progress: 100, start: addDays(-150), end: addDays(-12),
+      alloc: [{ m: 'm12', planned: 40, used: 38 }, { m: 'm14', planned: 60, used: 60 }, { m: 'm7', planned: 8000, used: 7600 }] }
+  ];
+
+  // Tạo hóa đơn kèm lịch sử thanh toán hợp lý
+  const mkInv = (id, key, keyVal, desc, total, paid, issueOff, dueOff) => {
+    const payments = [];
+    if (paid > 0) {
+      if (paid > 50e6 && paid >= total * 0.5) {
+        const a = Math.round(paid * 0.55 / 1e6) * 1e6;
+        payments.push({ id: uid('pm'), date: addDays(Math.min(issueOff + 6, -2)), amount: a, method: 'Chuyển khoản', note: 'Thanh toán đợt 1' });
+        payments.push({ id: uid('pm'), date: addDays(Math.min(issueOff + 22, -1)), amount: paid - a, method: 'Ủy nhiệm chi', note: 'Thanh toán đợt 2' });
+      } else {
+        payments.push({ id: uid('pm'), date: addDays(Math.min(issueOff + 8, -1)), amount: paid, method: 'Chuyển khoản', note: 'Tạm ứng' });
+      }
+    }
+    return { id, [key]: keyVal, desc, total, paid, issued: addDays(issueOff), due: addDays(dueOff), payments };
+  };
+
+  const payables = [
+    mkInv('HĐ-NCC-0912', 'supplierId', 's1', 'Xi măng PCB40 – 2.000 bao (đợt 3)', 184000000, 100000000, -42, -12),
+    mkInv('HĐ-NCC-0918', 'supplierId', 's2', 'Thép CB400-V D16 – 25 tấn', 390000000, 200000000, -37, 8),
+    mkInv('HĐ-NCC-0921', 'supplierId', 's2', 'Thép Pomina D10 – 10 tấn', 159000000, 0, -47, -2),
+    mkInv('HĐ-NCC-0887', 'supplierId', 's3', 'Cát vàng + đá 1x2 – tháng 8', 96500000, 96500000, -35, -20),
+    mkInv('HĐ-NCC-0930', 'supplierId', 's3', 'Cát vàng bê tông – 150 m³', 63000000, 0, -12, 3),
+    mkInv('HĐ-NCC-0903', 'supplierId', 's4', 'Gạch đặc A1 – 60.000 viên', 81000000, 40000000, -34, -4),
+    mkInv('HĐ-NCC-0935', 'supplierId', 's5', 'Ống PVC D90 / D114 – lô 09', 48700000, 0, -9, 21),
+    mkInv('HĐ-NCC-0896', 'supplierId', 's6', 'Dây CV 2.5 / CV 4.0 – 50 cuộn', 52800000, 52800000, -30, -9),
+    mkInv('HĐ-NCC-0927', 'supplierId', 's7', 'Sơn ngoại thất Dulux – 80 thùng', 148000000, 60000000, -18, 12)
+  ];
+
+  const receivables = [
+    mkInv('HĐ-KH-2409', 'projectId', 'p1', 'Nghiệm thu đợt 4 – hoàn thiện căn hộ', 1850000000, 1200000000, -20, 10),
+    mkInv('HĐ-KH-2402', 'projectId', 'p2', 'Thanh toán đợt 2 – kết cấu thép nhà xưởng', 2400000000, 1000000000, -39, -9),
+    mkInv('HĐ-KH-2398', 'projectId', 'p3', 'Khối lượng hoàn thành tháng 8', 780000000, 780000000, -40, -10),
+    mkInv('HĐ-KH-2361', 'projectId', 'p4', 'Quyết toán công trình', 1187500000, 1187500000, -45, -15),
+    mkInv('HĐ-KH-2362', 'projectId', 'p4', 'Tiền giữ lại bảo hành 5%', 62500000, 0, -40, 150),
+    mkInv('HĐ-KH-2404', 'projectId', 'p5', 'Tạm ứng hợp đồng 20% – đợt 2', 960000000, 500000000, -33, -3),
+    mkInv('HĐ-KH-2410', 'projectId', 'p6', 'Quyết toán hạng mục cải tạo', 420000000, 300000000, -25, 5)
+  ];
+
+  return { version: 1, suppliers, materials, projects, payables, receivables, updatedAt: new Date().toISOString() };
+}
+
+/* ============ 3. STORE (state + persistence) ============ */
+const STORAGE_KEY = 'buildledger.state.v1';
+const Store = {
+  state: null,
+  load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) { this.state = JSON.parse(raw); return; }
+    } catch (e) { /* storage unavailable → dùng dữ liệu mẫu */ }
+    this.state = buildSeed();
+  },
+  save() {
+    this.state.updatedAt = new Date().toISOString();
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state)); } catch (e) {}
+  },
+  reset() { this.state = buildSeed(); this.save(); }
+};
+
+/* ============ 4. API LAYER ============
+ * Mọi thao tác ghi dữ liệu đều đi qua object này.
+ * Để kết nối backend: thay phần thân mỗi hàm bằng fetch()/Firebase SDK,
+ * giữ nguyên chữ ký (async, trả về object đã lưu) – UI không cần sửa.
+ *
+ *   const BASE_URL = 'https://api.your-company.vn/v1';
+ *   const res = await fetch(`${BASE_URL}/materials`, { method: 'POST',
+ *     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+ *     body: JSON.stringify(material) });
+ *   return res.json();
+ * ===================================== */
+const API = {
+  // TODO(API): GET /api/bootstrap  → { materials, projects, suppliers, payables, receivables }
+  // Firebase: Promise.all([getDocs(collection(db,'materials')), ...])
+  async fetchAll() { return Store.state; },
+
+  // TODO(API): POST /api/materials (tạo mới) | PUT /api/materials/:id (cập nhật)
+  async saveMaterial(mat) {
+    const list = Store.state.materials;
+    const i = list.findIndex(x => x.id === mat.id);
+    if (i >= 0) list[i] = { ...list[i], ...mat };
+    else list.push({ ...mat, id: uid('m') });
+    Store.save();
+    return mat;
+  },
+
+  // TODO(API): DELETE /api/materials/:id
+  async deleteMaterial(id) {
+    Store.state.materials = Store.state.materials.filter(m => m.id !== id);
+    Store.save();
+  },
+
+  // TODO(API): POST /api/projects/:projectId/allocations  { materialId, qty, note }
+  // Backend nên thực hiện trong 1 transaction: trừ tồn kho + ghi phiếu xuất kho.
+  async allocateMaterial(projectId, materialId, qty, note) {
+    const S = Store.state;
+    const mat = S.materials.find(m => m.id === materialId);
+    const prj = S.projects.find(p => p.id === projectId);
+    if (!mat || !prj) throw new Error('Không tìm thấy dữ liệu');
+    if (qty > mat.stock) throw new Error('Số lượng vượt tồn kho');
+    mat.stock = round3(mat.stock - qty);
+    let a = prj.alloc.find(x => x.m === materialId);
+    if (!a) { a = { m: materialId, planned: qty, used: 0 }; prj.alloc.push(a); }
+    a.used = round3(a.used + qty);
+    a.planned = Math.max(a.planned, a.used);
+    (prj.log ||= []).push({ date: todayISO(), materialId, qty, note });
+    Store.save();
+    return prj;
+  },
+
+  // TODO(API): POST /api/ledger/{payables|receivables}/:invoiceId/payments  { amount, date, method, note }
+  async recordPayment(type, invoiceId, payment) {
+    const list = type === 'ap' ? Store.state.payables : Store.state.receivables;
+    const inv = list.find(x => x.id === invoiceId);
+    if (!inv) throw new Error('Không tìm thấy hóa đơn');
+    if (payment.amount > inv.total - inv.paid) throw new Error('Số tiền vượt số còn lại');
+    inv.payments.push({ id: uid('pm'), ...payment });
+    inv.paid += payment.amount;
+    Store.save();
+    return inv;
+  },
+
+  // TODO(API): POST /api/suppliers
+  async saveSupplier(sup) {
+    Store.state.suppliers.push({ ...sup, id: uid('s') });
+    Store.save();
+    return sup;
+  }
+};
+
+/* ============ 5. SELECTORS (derived data) ============ */
+const S = () => Store.state;
+const matById = id => S().materials.find(m => m.id === id);
+const supById = id => S().suppliers.find(s => s.id === id);
+const prjById = id => S().projects.find(p => p.id === id);
+const matValue = m => m.stock * m.price;
+const remaining = inv => Math.max(0, inv.total - inv.paid);
+const stockLevel = m => m.stock <= 0 ? 'out' : m.stock < m.minStock ? 'low' : 'ok';
+
+function invStatus(inv) {
+  if (remaining(inv) === 0) return 'paid';
+  const d = daysFromToday(inv.due);
+  if (d < 0) return 'overdue';
+  if (d <= 7) return 'soon';
+  return 'open';
+}
+function partyOf(type, inv) {
+  if (type === 'ap') { const s = supById(inv.supplierId); return { name: s?.name || '—', sub: s?.contact || '' }; }
+  const p = prjById(inv.projectId); return { name: p?.client || '—', sub: p?.name || '' };
+}
+function supplierStats(sid) {
+  const inv = S().payables.filter(p => p.supplierId === sid);
+  const total = inv.reduce((a, p) => a + p.total, 0);
+  const paid = inv.reduce((a, p) => a + p.paid, 0);
+  const debt = inv.reduce((a, p) => a + remaining(p), 0);
+  const overdue = inv.filter(p => invStatus(p) === 'overdue').reduce((a, p) => a + remaining(p), 0);
+  const open = inv.filter(p => remaining(p) > 0).sort((a, b) => a.due.localeCompare(b.due));
+  return { count: inv.length, total, paid, debt, overdue, nextDue: open[0]?.due || null, openCount: open.length };
+}
+function projectHealth(p) {
+  if (p.status === 'completed') return { delayed: false, expected: 100 };
+  const total = Math.max(1, dayDiff(p.start, p.end));
+  const expected = clamp(Math.round(dayDiff(p.start, todayISO()) / total * 100), 0, 100);
+  const left = daysFromToday(p.end);
+  if (left < 0) return { delayed: true, expected, reason: `Quá hạn bàn giao ${-left} ngày`, severity: 'high' };
+  if (p.progress < expected - 15) return { delayed: true, expected, reason: `Thực tế ${p.progress}% / kế hoạch ${expected}%`, severity: 'mid' };
+  return { delayed: false, expected };
+}
+function getAlerts() {
+  const lowStock = S().materials.filter(m => stockLevel(m) !== 'ok')
+    .sort((a, b) => a.stock / a.minStock - b.stock / b.minStock);
+  const overdue = [
+    ...S().payables.filter(i => invStatus(i) === 'overdue').map(i => ({ type: 'ap', inv: i })),
+    ...S().receivables.filter(i => invStatus(i) === 'overdue').map(i => ({ type: 'ar', inv: i }))
+  ].sort((a, b) => a.inv.due.localeCompare(b.inv.due));
+  const delays = S().projects.map(p => ({ p, h: projectHealth(p) })).filter(x => x.h.delayed);
+  return { lowStock, overdue, delays, total: lowStock.length + overdue.length + delays.length };
+}
+
+/* ============ 6. UI PRIMITIVES ============ */
+const icon = (name, cls = '') => `<i data-lucide="${name}" class="${cls}"></i>`;
+const refreshIcons = () => { try { window.lucide && lucide.createIcons(); } catch (e) {} };
+const card = (inner, cls = '') => `<div class="bg-white rounded-2xl border border-slate-200/80 shadow-card ${cls}">${inner}</div>`;
+const inputCls = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 transition';
+const btnPrimary = 'inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-medium px-4 py-2 shadow-sm shadow-emerald-900/10 transition disabled:opacity-50 disabled:cursor-not-allowed';
+const btnGhost = 'inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 transition';
+
+const catBadge = c => `<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${(CATEGORIES[c] || CATEGORIES['Xi măng']).cls}">${esc(c)}</span>`;
+
+function statusBadge(inv) {
+  const st = invStatus(inv), d = daysFromToday(inv.due);
+  const map = {
+    paid:    ['bg-emerald-50 text-emerald-700 ring-emerald-200', 'circle-check', 'Đã tất toán'],
+    overdue: ['bg-rose-50 text-rose-700 ring-rose-200', 'triangle-alert', `Quá hạn ${-d} ngày`],
+    soon:    ['bg-amber-50 text-amber-700 ring-amber-200', 'clock', d === 0 ? 'Đến hạn hôm nay' : `Còn ${d} ngày`],
+    open:    ['bg-sky-50 text-sky-700 ring-sky-200', 'calendar', `Còn ${d} ngày`]
+  }[st];
+  return `<span class="inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${map[0]}">${icon(map[1])}${map[2]}</span>`;
+}
+
+function progressBar(pct, color = 'bg-emerald-500', h = 'h-1.5', marker = null) {
+  return `<div class="relative w-full ${h} rounded-full bg-slate-100 overflow-hidden">
+    <div class="bar-fill ${h} ${color} rounded-full" style="width:${clamp(pct, 0, 100)}%"></div>
+    ${marker !== null ? `<div class="absolute top-0 bottom-0 w-0.5 bg-slate-900/60" style="left:${clamp(marker, 0, 100)}%" title="Kế hoạch ${marker}%"></div>` : ''}
+  </div>`;
+}
+
+/* ---- Toast ---- */
+function toast(msg, tone = 'success') {
+  const tones = { success: ['circle-check', 'text-emerald-500'], error: ['circle-x', 'text-rose-500'], info: ['info', 'text-sky-500'] };
+  const [ic, col] = tones[tone] || tones.info;
+  const el = document.createElement('div');
+  el.className = 'toast pointer-events-auto flex items-start gap-3 bg-slate-900 text-white text-sm rounded-xl shadow-2xl px-4 py-3 sm:max-w-sm';
+  el.innerHTML = `<span class="${col} mt-0.5">${icon(ic, '!w-4 !h-4')}</span><span class="flex-1">${esc(msg)}</span>`;
+  $('#toast-root').appendChild(el);
+  refreshIcons();
+  setTimeout(() => { el.classList.add('leaving'); setTimeout(() => el.remove(), 260); }, 3200);
+}
+
+/* ---- Modal ---- */
+function openModal(html, size = 'max-w-lg') {
+  const root = $('#modal-root');
+  root.innerHTML = `
+    <div class="modal-wrap fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" role="dialog" aria-modal="true">
+      <div class="modal-backdrop absolute inset-0 bg-slate-900/50 backdrop-blur-sm" data-action="close-modal"></div>
+      <div class="modal-panel relative w-full ${size} bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden">${html}</div>
+    </div>`;
+  refreshIcons();
+  document.body.style.overflow = 'hidden';
+  requestAnimationFrame(() => {
+    root.firstElementChild.classList.add('open');
+    const first = root.querySelector('input:not([type=hidden]), select, textarea');
+    if (first && window.innerWidth > 640) first.focus();
+  });
+}
+function closeModal() {
+  const wrap = $('#modal-root .modal-wrap');
+  if (!wrap) return;
+  wrap.classList.remove('open');
+  document.body.style.overflow = '';
+  setTimeout(() => { $('#modal-root').innerHTML = ''; }, 200);
+}
+const modalHeader = (title, sub, ic, tone = 'bg-emerald-50 text-emerald-600') => `
+  <div class="flex items-start gap-3 px-6 pt-5 pb-4 border-b border-slate-100">
+    <div class="w-10 h-10 rounded-xl ${tone} grid place-items-center shrink-0">${icon(ic, '!w-5 !h-5')}</div>
+    <div class="min-w-0 flex-1">
+      <h2 class="text-base font-semibold text-slate-900">${title}</h2>
+      <p class="text-sm text-slate-500 truncate">${sub}</p>
+    </div>
+    <button type="button" data-action="close-modal" class="p-1.5 -mr-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100" aria-label="Đóng">${icon('x', '!w-5 !h-5')}</button>
+  </div>`;
+const modalFooter = (inner) => `<div class="px-6 py-4 border-t border-slate-100 bg-slate-50/70 flex flex-wrap items-center gap-2">${inner}</div>`;
+
+const field = (name, label, control, hint = '') => `
+  <div>
+    <label for="f-${name}" class="block text-sm font-medium text-slate-700 mb-1.5">${label}</label>
+    ${control}
+    <p class="hidden text-xs text-rose-600 mt-1" data-err="${name}"></p>
+    ${hint ? `<p class="text-xs text-slate-400 mt-1" data-hint="${name}">${hint}</p>` : ''}
+  </div>`;
+
+/** Gắn validation động cho form. rules: { fieldName: (value, form) => errorMsg | null } */
+function bindValidation(form, rules, onChange) {
+  const check = (name, show = true) => {
+    const el = form.elements[name];
+    if (!el || !rules[name]) return true;
+    const err = rules[name](String(el.value).trim(), form);
+    if (show) {
+      el.classList.toggle('is-invalid', !!err);
+      el.classList.toggle('is-valid', !err && el.value !== '');
+      const p = form.querySelector(`[data-err="${name}"]`);
+      if (p) { p.textContent = err || ''; p.classList.toggle('hidden', !err); }
+    }
+    return !err;
+  };
+  const handler = e => { if (e.target.name) { check(e.target.name); onChange && onChange(e.target.name, check); } };
+  form.addEventListener('input', handler);
+  form.addEventListener('change', handler);
+  return () => Object.keys(rules).map(n => check(n)).every(Boolean);
+}
+
+function confirmDialog({ title, message, confirmText = 'Xác nhận', danger = false, onConfirm }) {
+  openModal(`
+    ${modalHeader(title, 'Thao tác này không thể hoàn tác', danger ? 'triangle-alert' : 'circle-help', danger ? 'bg-rose-50 text-rose-600' : 'bg-sky-50 text-sky-600')}
+    <div class="px-6 py-5 text-sm text-slate-600">${message}</div>
+    ${modalFooter(`<div class="flex-1"></div>
+      <button type="button" class="${btnGhost}" data-action="close-modal">Hủy</button>
+      <button type="button" id="confirm-ok" class="${btnPrimary} ${danger ? '!bg-rose-600 hover:!bg-rose-700' : ''}">${confirmText}</button>`)}
+  `, 'max-w-md');
+  $('#confirm-ok').addEventListener('click', async () => { await onConfirm(); closeModal(); });
+}
+
+/* ============ 7. VIEWS ============ */
+const ui = {
+  inv: { q: '', cat: 'all', level: 'all', sort: 'code', dir: 1 },
+  projFilter: 'all',
+  sup: { q: '' },
+  ledger: { q: '', ap: 'all', ar: 'all' }
+};
+
+/* ---------- 7.1 DASHBOARD ---------- */
+function metricCard({ ic, label, value, sub, tone, action }) {
+  const tones = {
+    slate: 'bg-slate-900 text-white', emerald: 'bg-emerald-50 text-emerald-600',
+    rose: 'bg-rose-50 text-rose-600', sky: 'bg-sky-50 text-sky-600'
+  };
+  return `<button data-action="nav" data-view="${action}" class="text-left bg-white rounded-2xl border border-slate-200/80 shadow-card p-5 hover:shadow-md hover:-translate-y-0.5 hover:border-slate-300 transition group">
+    <div class="flex items-start justify-between">
+      <div class="w-10 h-10 rounded-xl grid place-items-center ${tones[tone]}">${icon(ic, '!w-5 !h-5')}</div>
+      <span class="text-slate-300 group-hover:text-slate-500 transition">${icon('arrow-up-right', '!w-4 !h-4')}</span>
+    </div>
+    <div class="mt-4 text-sm text-slate-500">${label}</div>
+    <div class="mt-1 text-2xl font-semibold text-slate-900 tracking-tight num">${value}</div>
+    <div class="mt-1 text-xs text-slate-500">${sub}</div>
+  </button>`;
+}
+
+function alertGroup(title, ic, tone, count, items, emptyText) {
+  return `<div class="flex flex-col min-h-0">
+    <div class="flex items-center gap-2 mb-3">
+      <span class="w-7 h-7 rounded-lg grid place-items-center ${tone}">${icon(ic, '!w-4 !h-4')}</span>
+      <h3 class="text-sm font-semibold text-slate-800">${title}</h3>
+      <span class="ml-auto text-xs font-semibold rounded-full px-2 py-0.5 ${count ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}">${count}</span>
+    </div>
+    <div class="space-y-2 max-h-72 overflow-y-auto pr-1">
+      ${items || `<div class="flex items-center gap-2 text-sm text-slate-400 bg-slate-50 rounded-xl px-3 py-4">${icon('circle-check', 'text-emerald-500')} ${emptyText}</div>`}
+    </div>
+  </div>`;
+}
+
+function renderDashboard() {
+  const st = S(), A = getAlerts();
+  const invTotal = st.materials.reduce((a, m) => a + matValue(m), 0);
+  const ap = st.payables.reduce((a, p) => a + remaining(p), 0);
+  const ar = st.receivables.reduce((a, p) => a + remaining(p), 0);
+  const apOver = st.payables.filter(p => invStatus(p) === 'overdue').reduce((a, p) => a + remaining(p), 0);
+  const arOver = st.receivables.filter(p => invStatus(p) === 'overdue').reduce((a, p) => a + remaining(p), 0);
+  const active = st.projects.filter(p => p.status !== 'completed').length;
+
+  const lowItems = A.lowStock.map(m => {
+    const pct = m.minStock ? Math.round(m.stock / m.minStock * 100) : 0;
+    return `<button data-action="goto-inv-low" class="w-full text-left rounded-xl border border-amber-200/70 bg-amber-50/50 hover:bg-amber-50 px-3 py-2.5 transition">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-slate-800 truncate">${esc(m.name)}</span>
+        <span class="text-xs font-semibold ${m.stock <= 0 ? 'text-rose-600' : 'text-amber-700'} whitespace-nowrap">${m.stock <= 0 ? 'Hết hàng' : pct + '%'}</span>
+      </div>
+      <div class="mt-1.5">${progressBar(pct, m.stock <= 0 ? 'bg-rose-500' : 'bg-amber-500', 'h-1')}</div>
+      <div class="mt-1 text-xs text-slate-500 num">Tồn ${fmtNum(m.stock)} / ngưỡng ${fmtNum(m.minStock)} ${esc(m.unit)}</div>
+    </button>`;
+  }).join('');
+
+  const overItems = A.overdue.map(({ type, inv }) => {
+    const party = partyOf(type, inv);
+    return `<button data-action="pay" data-type="${type}" data-id="${esc(inv.id)}" class="w-full text-left rounded-xl border border-rose-200/70 bg-rose-50/40 hover:bg-rose-50 px-3 py-2.5 transition">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-[11px] font-semibold uppercase tracking-wide ${type === 'ap' ? 'text-rose-600' : 'text-emerald-700'}">${type === 'ap' ? 'Phải trả' : 'Phải thu'}</span>
+        <span class="text-xs text-rose-600 font-medium">Quá ${-daysFromToday(inv.due)} ngày</span>
+      </div>
+      <div class="text-sm font-medium text-slate-800 truncate mt-0.5">${esc(party.name)}</div>
+      <div class="flex items-center justify-between text-xs text-slate-500 mt-0.5"><span class="font-mono">${esc(inv.id)}</span><span class="num font-semibold text-slate-800">${fmtVND(remaining(inv))}</span></div>
+    </button>`;
+  }).join('');
+
+  const delayItems = A.delays.map(({ p, h }) => `
+    <button data-action="nav" data-view="projects" class="w-full text-left rounded-xl border border-orange-200/70 bg-orange-50/40 hover:bg-orange-50 px-3 py-2.5 transition">
+      <div class="text-sm font-medium text-slate-800 truncate">${esc(p.name)}</div>
+      <div class="text-xs ${h.severity === 'high' ? 'text-rose-600' : 'text-orange-700'} font-medium mt-0.5">${esc(h.reason)}</div>
+      <div class="mt-1.5">${progressBar(p.progress, 'bg-orange-500', 'h-1', h.expected)}</div>
+      <div class="mt-1 text-xs text-slate-500">Bàn giao: ${fmtDate(p.end)} · ${esc(p.manager)}</div>
+    </button>`).join('');
+
+  // Giá trị tồn kho theo nhóm
+  const byCat = Object.keys(CATEGORIES).map(c => ({ c, v: st.materials.filter(m => m.category === c).reduce((a, m) => a + matValue(m), 0) }))
+    .filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+  const maxCat = Math.max(1, ...byCat.map(x => x.v));
+
+  // Công nợ đến hạn trong 14 ngày
+  const upcoming = [
+    ...st.payables.map(i => ({ type: 'ap', inv: i })), ...st.receivables.map(i => ({ type: 'ar', inv: i }))
+  ].filter(x => remaining(x.inv) > 0 && daysFromToday(x.inv.due) >= 0 && daysFromToday(x.inv.due) <= 14)
+   .sort((a, b) => a.inv.due.localeCompare(b.inv.due));
+
+  const net = ar - ap;
+
+  return `
+  <div class="space-y-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      ${metricCard({ ic: 'hard-hat', label: 'Tổng số dự án', value: st.projects.length, sub: `${active} đang thi công · ${st.projects.length - active} đã hoàn thành`, tone: 'slate', action: 'projects' })}
+      ${metricCard({ ic: 'warehouse', label: 'Giá trị tồn kho', value: fmtCompact(invTotal) + ' ₫', sub: `${st.materials.length} mã vật tư · ${A.lowStock.length} mã dưới ngưỡng`, tone: 'sky', action: 'inventory' })}
+      ${metricCard({ ic: 'arrow-up-right', label: 'Phải trả nhà cung cấp', value: fmtCompact(ap) + ' ₫', sub: apOver ? `<span class="text-rose-600 font-medium">${fmtCompact(apOver)} ₫ quá hạn</span>` : 'Không có khoản quá hạn', tone: 'rose', action: 'ledger' })}
+      ${metricCard({ ic: 'arrow-down-left', label: 'Phải thu khách hàng', value: fmtCompact(ar) + ' ₫', sub: arOver ? `<span class="text-rose-600 font-medium">${fmtCompact(arOver)} ₫ quá hạn</span>` : 'Không có khoản quá hạn', tone: 'emerald', action: 'ledger' })}
+    </div>
+
+    ${card(`
+      <div class="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 grid place-items-center">${icon('triangle-alert', '!w-5 !h-5')}</div>
+        <div>
+          <h2 class="font-semibold text-slate-900">Cảnh báo thông minh</h2>
+          <p class="text-xs text-slate-500">${A.total} vấn đề cần xử lý · tự động cập nhật theo dữ liệu kho và sổ công nợ</p>
+        </div>
+      </div>
+      <div class="p-5 sm:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        ${alertGroup('Tồn kho dưới ngưỡng', 'package-minus', 'bg-amber-50 text-amber-600', A.lowStock.length, lowItems, 'Tồn kho an toàn')}
+        ${alertGroup('Công nợ quá hạn', 'receipt', 'bg-rose-50 text-rose-600', A.overdue.length, overItems, 'Không có công nợ quá hạn')}
+        ${alertGroup('Dự án chậm tiến độ', 'calendar-clock', 'bg-orange-50 text-orange-600', A.delays.length, delayItems, 'Các dự án đúng tiến độ')}
+      </div>
+    `)}
+
+    <div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
+      ${card(`
+        <div class="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div><h2 class="font-semibold text-slate-900">Giá trị tồn kho theo nhóm</h2><p class="text-xs text-slate-500">Tổng ${fmtVND(invTotal)}</p></div>
+          <button data-action="nav" data-view="inventory" class="text-sm text-emerald-700 hover:text-emerald-800 font-medium inline-flex items-center gap-1">Xem kho ${icon('chevron-right')}</button>
+        </div>
+        <div class="p-5 sm:p-6 space-y-4">
+          ${byCat.map(x => `
+            <div>
+              <div class="flex items-center justify-between text-sm mb-1.5">
+                <span class="flex items-center gap-2 text-slate-700"><span class="w-2.5 h-2.5 rounded-sm ${CATEGORIES[x.c].bar}"></span>${esc(x.c)}</span>
+                <span class="num text-slate-900 font-medium">${fmtCompact(x.v)} ₫ <span class="text-slate-400 font-normal">· ${Math.round(x.v / invTotal * 100)}%</span></span>
+              </div>
+              ${progressBar(x.v / maxCat * 100, CATEGORIES[x.c].bar, 'h-2')}
+            </div>`).join('')}
+        </div>
+      `, 'xl:col-span-3')}
+
+      ${card(`
+        <div class="px-5 sm:px-6 py-4 border-b border-slate-100">
+          <h2 class="font-semibold text-slate-900">Đến hạn trong 14 ngày</h2>
+          <p class="text-xs text-slate-500">Vị thế công nợ ròng: <span class="font-semibold num ${net >= 0 ? 'text-emerald-700' : 'text-rose-600'}">${net >= 0 ? '+' : ''}${fmtCompact(net)} ₫</span></p>
+        </div>
+        <div class="divide-y divide-slate-100">
+          ${upcoming.length ? upcoming.map(({ type, inv }) => `
+            <button data-action="pay" data-type="${type}" data-id="${esc(inv.id)}" class="w-full text-left px-5 sm:px-6 py-3 flex items-center gap-3 hover:bg-slate-50 transition">
+              <span class="w-8 h-8 rounded-lg grid place-items-center ${type === 'ap' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}">${icon(type === 'ap' ? 'arrow-up-right' : 'arrow-down-left', '!w-4 !h-4')}</span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-medium text-slate-800 truncate">${esc(partyOf(type, inv).name)}</span>
+                <span class="block text-xs text-slate-500">${type === 'ap' ? 'Phải trả' : 'Phải thu'} · hạn ${fmtDate(inv.due)}</span>
+              </span>
+              <span class="text-right">
+                <span class="block text-sm font-semibold num text-slate-900">${fmtCompact(remaining(inv))} ₫</span>
+                <span class="block text-xs ${daysFromToday(inv.due) <= 3 ? 'text-amber-600' : 'text-slate-400'}">${daysFromToday(inv.due) === 0 ? 'Hôm nay' : 'còn ' + daysFromToday(inv.due) + ' ngày'}</span>
+              </span>
+            </button>`).join('') : `<div class="px-6 py-10 text-center text-sm text-slate-400">Không có khoản nào đến hạn</div>`}
+        </div>
+      `, 'xl:col-span-2')}
+    </div>
+  </div>`;
+}
+
+/* ---------- 7.2 INVENTORY ---------- */
+function filteredMaterials() {
+  const { q, cat, level, sort, dir } = ui.inv;
+  const k = q.trim().toLowerCase();
+  const val = {
+    code: m => m.code, name: m => m.name, category: m => m.category,
+    stock: m => m.stock, price: m => m.price, value: m => matValue(m)
+  }[sort];
+  return S().materials
+    .filter(m => cat === 'all' || m.category === cat)
+    .filter(m => level === 'all' || (level === 'low' ? stockLevel(m) !== 'ok' : stockLevel(m) === 'ok'))
+    .filter(m => !k || m.name.toLowerCase().includes(k) || m.code.toLowerCase().includes(k))
+    .sort((a, b) => { const x = val(a), y = val(b); return (typeof x === 'string' ? x.localeCompare(y, 'vi') : x - y) * dir; });
+}
+
+function invRows() {
+  const list = filteredMaterials();
+  if (!list.length) return `<tr><td colspan="8" class="px-6 py-16 text-center">
+    <div class="inline-flex flex-col items-center text-slate-400">${icon('search-x', '!w-8 !h-8')}<span class="mt-2 text-sm">Không tìm thấy vật tư phù hợp</span></div></td></tr>`;
+  return list.map(m => {
+    const lv = stockLevel(m);
+    const pct = m.minStock ? clamp(m.stock / (m.minStock * 2) * 100, 0, 100) : 100;
+    const sup = supById(m.supplierId);
+    return `<tr class="group hover:bg-emerald-50/40">
+      <td class="px-4 py-3 font-mono text-xs font-semibold text-slate-500 whitespace-nowrap">${esc(m.code)}</td>
+      <td class="px-4 py-3 min-w-[220px]">
+        <div class="font-medium text-slate-900">${esc(m.name)}</div>
+        <div class="text-xs text-slate-500 truncate max-w-[260px]">${sup ? 'NCC: ' + esc(sup.name) : '—'}</div>
+      </td>
+      <td class="px-4 py-3">${catBadge(m.category)}</td>
+      <td class="px-4 py-3 text-right">
+        <div class="num font-medium ${lv === 'ok' ? 'text-slate-900' : lv === 'low' ? 'text-amber-700' : 'text-rose-600'}">${fmtNum(m.stock)}</div>
+        <div class="w-24 ml-auto mt-1">${progressBar(pct, lv === 'ok' ? 'bg-emerald-500' : lv === 'low' ? 'bg-amber-500' : 'bg-rose-500', 'h-1')}</div>
+        ${lv !== 'ok' ? `<div class="text-[11px] mt-0.5 ${lv === 'low' ? 'text-amber-600' : 'text-rose-600'}">${lv === 'low' ? 'Dưới ngưỡng ' + fmtNum(m.minStock) : 'Hết hàng'}</div>` : ''}
+      </td>
+      <td class="px-4 py-3 text-slate-600">${esc(m.unit)}</td>
+      <td class="px-4 py-3 text-right num text-slate-700 whitespace-nowrap">${fmtVND(m.price)}</td>
+      <td class="px-4 py-3 text-right num font-semibold text-slate-900 whitespace-nowrap">${fmtVND(matValue(m))}</td>
+      <td class="px-4 py-3 text-right whitespace-nowrap">
+        <div class="inline-flex gap-1 lg:opacity-0 lg:group-hover:opacity-100 transition">
+          <button data-action="material-edit" data-id="${m.id}" class="p-2 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50" title="Sửa">${icon('pencil', '!w-4 !h-4')}</button>
+          <button data-action="material-delete" data-id="${m.id}" class="p-2 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50" title="Xóa">${icon('trash-2', '!w-4 !h-4')}</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function invSummary() {
+  const list = filteredMaterials();
+  const total = list.reduce((a, m) => a + matValue(m), 0);
+  return `Hiển thị <b class="text-slate-800">${list.length}</b> / ${S().materials.length} mã · Giá trị: <b class="text-slate-800 num">${fmtVND(total)}</b>`;
+}
+
+function sortTh(key, label, align = 'left') {
+  const active = ui.inv.sort === key;
+  return `<th class="px-4 py-3 text-${align} font-medium">
+    <button data-action="sort" data-key="${key}" class="inline-flex items-center gap-1 hover:text-slate-900 ${active ? 'text-slate-900' : ''}">
+      ${label}${icon(active ? (ui.inv.dir === 1 ? 'arrow-up' : 'arrow-down') : 'arrow-up-down', active ? 'text-emerald-600' : 'opacity-40')}
+    </button></th>`;
+}
+
+function renderInventory() {
+  const cats = Object.keys(CATEGORIES);
+  return `
+  <div class="space-y-4">
+    <div class="flex flex-col lg:flex-row lg:items-center gap-3">
+      <div class="relative flex-1 max-w-md">
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">${icon('search', '!w-4 !h-4')}</span>
+        <input id="inv-search" type="search" value="${esc(ui.inv.q)}" placeholder="Tìm theo tên hoặc mã vật tư…" class="${inputCls} pl-9">
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        <select id="inv-cat" class="${inputCls} !w-auto pr-8">
+          <option value="all">Tất cả nhóm</option>
+          ${cats.map(c => `<option value="${c}" ${ui.inv.cat === c ? 'selected' : ''}>${c}</option>`).join('')}
+        </select>
+        <select id="inv-level" class="${inputCls} !w-auto pr-8">
+          <option value="all" ${ui.inv.level === 'all' ? 'selected' : ''}>Mọi mức tồn</option>
+          <option value="low" ${ui.inv.level === 'low' ? 'selected' : ''}>Dưới ngưỡng an toàn</option>
+          <option value="ok" ${ui.inv.level === 'ok' ? 'selected' : ''}>Tồn kho an toàn</option>
+        </select>
+        <button data-action="material-new" class="${btnPrimary}">${icon('plus', '!w-4 !h-4')} Thêm vật tư</button>
+      </div>
+    </div>
+
+    ${card(`
+      <div class="px-4 sm:px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+        <p id="inv-summary" class="text-sm text-slate-500">${invSummary()}</p>
+        <span class="hidden sm:inline-flex items-center gap-1.5 text-xs text-slate-400">${icon('arrow-up-down')} Nhấn tiêu đề cột để sắp xếp</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm min-w-[900px]">
+          <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 border-b border-slate-200">
+            <tr id="inv-head">${invHead()}</tr>
+          </thead>
+          <tbody id="inv-body" class="divide-y divide-slate-100">${invRows()}</tbody>
+        </table>
+      </div>
+    `)}
+  </div>`;
+}
+const invHead = () => `${sortTh('code', 'Mã')}${sortTh('name', 'Tên vật tư')}${sortTh('category', 'Nhóm')}${sortTh('stock', 'Tồn kho', 'right')}
+  <th class="px-4 py-3 text-left font-medium">ĐVT</th>${sortTh('price', 'Đơn giá', 'right')}${sortTh('value', 'Thành tiền', 'right')}<th class="px-4 py-3"></th>`;
+
+function refreshInventoryTable() {
+  if (!$('#inv-body')) return;
+  $('#inv-body').innerHTML = invRows();
+  $('#inv-head').innerHTML = invHead();
+  $('#inv-summary').innerHTML = invSummary();
+  refreshIcons();
+}
+
+/* ---------- 7.3 PROJECTS & LOGISTICS ---------- */
+function projectCard(p) {
+  const h = projectHealth(p);
+  const done = p.status === 'completed';
+  const left = daysFromToday(p.end);
+  const statusBadgeHtml = done
+    ? `<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200">${icon('circle-check')} Hoàn thành</span>`
+    : `<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-200"><span class="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse"></span> Đang thi công</span>`;
+  const delayBadge = h.delayed ? `<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-200">${icon('triangle-alert')} Chậm tiến độ</span>` : '';
+  const barColor = done ? 'bg-emerald-500' : h.delayed ? 'bg-orange-500' : 'bg-sky-500';
+
+  return `<article class="bg-white rounded-2xl border border-slate-200/80 shadow-card hover:shadow-lg hover:-translate-y-0.5 transition flex flex-col overflow-hidden">
+    <div class="h-1.5 ${done ? 'bg-gradient-to-r from-emerald-400 to-emerald-600' : h.delayed ? 'bg-gradient-to-r from-orange-400 to-rose-500' : 'bg-gradient-to-r from-sky-400 to-slate-700'}"></div>
+    <div class="p-5 flex-1">
+      <div class="flex items-center justify-between gap-2">
+        <span class="font-mono text-xs font-semibold text-slate-400">${esc(p.code)}</span>
+        <div class="flex flex-wrap justify-end gap-1.5">${delayBadge}${statusBadgeHtml}</div>
+      </div>
+      <h3 class="mt-2 font-semibold text-slate-900 leading-snug">${esc(p.name)}</h3>
+      <div class="mt-2 space-y-1 text-sm text-slate-500">
+        <div class="flex items-center gap-2">${icon('map-pin', 'text-slate-400')} ${esc(p.location)}</div>
+        <div class="flex items-center gap-2">${icon('building-2', 'text-slate-400')} <span class="truncate">${esc(p.client)}</span></div>
+        <div class="flex items-center gap-2">${icon('user', 'text-slate-400')} ${esc(p.manager)}</div>
+      </div>
+
+      <div class="mt-4">
+        <div class="flex items-center justify-between text-xs mb-1.5">
+          <span class="text-slate-500">Tiến độ thi công ${!done ? `<span class="text-slate-400">· KH ${h.expected}%</span>` : ''}</span>
+          <span class="font-semibold text-slate-900 num">${p.progress}%</span>
+        </div>
+        ${progressBar(p.progress, barColor, 'h-2', done ? null : h.expected)}
+        <div class="flex items-center justify-between text-xs text-slate-500 mt-2">
+          <span>${icon('calendar', 'inline -mt-0.5')} ${fmtDate(p.start)} → ${fmtDate(p.end)}</span>
+          <span class="${!done && left < 0 ? 'text-rose-600 font-medium' : ''}">${done ? 'Đã bàn giao' : left < 0 ? `Trễ ${-left} ngày` : `Còn ${left} ngày`}</span>
+        </div>
+        ${h.delayed ? `<div class="mt-2 text-xs rounded-lg bg-orange-50 text-orange-700 px-2.5 py-1.5">${esc(h.reason)}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="px-5 py-4 border-t border-slate-100 bg-slate-50/60">
+      <div class="flex items-center justify-between mb-2.5">
+        <span class="text-xs font-semibold uppercase tracking-wide text-slate-500">Vật tư phân bổ</span>
+        <span class="text-xs text-slate-400">${p.alloc.length} mã</span>
+      </div>
+      <ul class="space-y-2.5">
+        ${p.alloc.map(a => {
+          const m = matById(a.m); if (!m) return '';
+          const pct = a.planned ? Math.round(a.used / a.planned * 100) : 0;
+          return `<li>
+            <div class="flex items-center justify-between gap-2 text-xs">
+              <span class="text-slate-700 truncate">${esc(m.name)}</span>
+              <span class="num text-slate-500 whitespace-nowrap"><b class="text-slate-800 font-medium">${fmtNum(a.used)}</b> / ${fmtNum(a.planned)} ${esc(m.unit)}</span>
+            </div>
+            <div class="mt-1">${progressBar(pct, pct >= 95 ? 'bg-emerald-500' : 'bg-slate-400', 'h-1')}</div>
+          </li>`;
+        }).join('')}
+      </ul>
+    </div>
+
+    <div class="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-2">
+      <div class="text-xs text-slate-500">Giá trị HĐ<div class="text-sm font-semibold text-slate-900 num">${fmtCompact(p.contract)} ₫</div></div>
+      ${done
+        ? `<span class="text-xs text-slate-400 inline-flex items-center gap-1">${icon('lock')} Đã khóa sổ</span>`
+        : `<button data-action="allocate" data-id="${p.id}" class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium px-3 py-2 transition">${icon('truck')} Xuất vật tư</button>`}
+    </div>
+  </article>`;
+}
+
+function renderProjects() {
+  const all = S().projects;
+  const f = ui.projFilter;
+  const list = all.filter(p => f === 'all' || (f === 'delayed' ? projectHealth(p).delayed : p.status === f));
+  const tabs = [
+    ['all', 'Tất cả', all.length],
+    ['active', 'Đang thi công', all.filter(p => p.status === 'active').length],
+    ['delayed', 'Chậm tiến độ', all.filter(p => projectHealth(p).delayed).length],
+    ['completed', 'Hoàn thành', all.filter(p => p.status === 'completed').length]
+  ];
+  return `
+  <div class="space-y-5">
+    <div class="flex flex-wrap items-center gap-2">
+      ${tabs.map(([k, l, n]) => `<button data-action="proj-filter" data-f="${k}" class="inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${f === k ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'}">${l}<span class="text-xs rounded-full px-1.5 ${f === k ? 'bg-white/15' : 'bg-slate-100'}">${n}</span></button>`).join('')}
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5">
+      ${list.map(projectCard).join('') || `<div class="col-span-full text-center text-slate-400 py-16">Không có dự án</div>`}
+    </div>
+  </div>`;
+}
+
+/* ---------- 7.4 SUPPLIERS ---------- */
+function supplierRows() {
+  const k = ui.sup.q.trim().toLowerCase();
+  const list = S().suppliers
+    .filter(s => !k || [s.name, s.contact, s.phone, ...s.types].join(' ').toLowerCase().includes(k))
+    .map(s => ({ s, st: supplierStats(s.id) }))
+    .sort((a, b) => b.st.debt - a.st.debt);
+  if (!list.length) return `<div class="px-6 py-16 text-center text-sm text-slate-400">Không tìm thấy nhà cung cấp</div>`;
+  return list.map(({ s, st }) => {
+    const paidPct = st.total ? Math.round(st.paid / st.total * 100) : 100;
+    return `<div class="grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-4 items-center px-5 py-4 hover:bg-emerald-50/30 transition">
+      <div class="lg:col-span-4 flex items-center gap-3 min-w-0">
+        <div class="w-10 h-10 rounded-xl bg-slate-900 text-white grid place-items-center text-sm font-semibold shrink-0">${esc(initials(s.name))}</div>
+        <div class="min-w-0">
+          <div class="font-medium text-slate-900 truncate">${esc(s.name)}</div>
+          <div class="text-xs text-slate-500 flex items-center gap-1 truncate">${icon('map-pin')} ${esc(s.address || '—')}</div>
+        </div>
+      </div>
+      <div class="lg:col-span-2 text-sm">
+        <div class="text-slate-800">${esc(s.contact)}</div>
+        <a href="tel:${esc(s.phone.replace(/\s/g, ''))}" class="text-xs text-slate-500 hover:text-emerald-700 inline-flex items-center gap-1 num">${icon('phone')} ${esc(s.phone)}</a>
+      </div>
+      <div class="lg:col-span-2 flex flex-wrap gap-1">${s.types.map(catBadge).join('')}<span class="text-[11px] text-slate-400 w-full mt-0.5">Công nợ ${s.terms} ngày</span></div>
+      <div class="lg:col-span-3">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="text-xs text-slate-500">Dư nợ hiện tại</span>
+          <span class="text-base font-semibold num ${st.debt ? 'text-slate-900' : 'text-emerald-600'}">${st.debt ? fmtVND(st.debt) : 'Đã tất toán'}</span>
+        </div>
+        <div class="mt-1.5">${progressBar(paidPct, 'bg-emerald-500', 'h-1.5')}</div>
+        <div class="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+          <span>Đã trả ${paidPct}% · ${st.openCount} HĐ mở</span>
+          ${st.overdue ? `<span class="text-rose-600 font-medium">Quá hạn ${fmtCompact(st.overdue)} ₫</span>` : st.nextDue ? `<span>Hạn gần nhất ${fmtDate(st.nextDue)}</span>` : ''}
+        </div>
+      </div>
+      <div class="lg:col-span-1 flex lg:justify-end">
+        <button data-action="supplier-ledger" data-name="${esc(s.name)}" class="inline-flex items-center gap-1 text-sm text-emerald-700 hover:text-emerald-800 font-medium" title="Xem sổ công nợ">Sổ nợ ${icon('chevron-right')}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderSuppliers() {
+  const all = S().suppliers.map(s => supplierStats(s.id));
+  const debt = all.reduce((a, x) => a + x.debt, 0), over = all.reduce((a, x) => a + x.overdue, 0);
+  const mini = (label, value, cls = 'text-slate-900') => `<div class="bg-white rounded-2xl border border-slate-200/80 shadow-card px-5 py-4"><div class="text-xs text-slate-500">${label}</div><div class="text-xl font-semibold num mt-1 ${cls}">${value}</div></div>`;
+  return `
+  <div class="space-y-5">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      ${mini('Số nhà cung cấp', S().suppliers.length)}
+      ${mini('Tổng dư nợ phải trả', fmtVND(debt))}
+      ${mini('Trong đó quá hạn', fmtVND(over), over ? 'text-rose-600' : 'text-emerald-600')}
+    </div>
+    <div class="flex flex-col sm:flex-row gap-3 sm:items-center">
+      <div class="relative flex-1 max-w-md">
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">${icon('search', '!w-4 !h-4')}</span>
+        <input id="sup-search" type="search" value="${esc(ui.sup.q)}" placeholder="Tìm tên, người liên hệ, nhóm hàng…" class="${inputCls} pl-9">
+      </div>
+      <button data-action="supplier-new" class="${btnPrimary} sm:ml-auto">${icon('plus', '!w-4 !h-4')} Thêm nhà cung cấp</button>
+    </div>
+    ${card(`
+      <div class="hidden lg:grid grid-cols-12 gap-4 px-5 py-3 bg-slate-50 border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 font-medium rounded-t-2xl">
+        <div class="col-span-4">Nhà cung cấp</div><div class="col-span-2">Liên hệ</div><div class="col-span-2">Nhóm hàng chính</div><div class="col-span-3">Công nợ (real-time)</div><div class="col-span-1"></div>
+      </div>
+      <div id="sup-list" class="divide-y divide-slate-100">${supplierRows()}</div>
+    `)}
+  </div>`;
+}
+
+/* ---------- 7.5 DEBT LEDGER ---------- */
+function ledgerList(type) {
+  const k = ui.ledger.q.trim().toLowerCase();
+  const f = ui.ledger[type];
+  const rank = { overdue: 0, soon: 1, open: 2, paid: 3 };
+  return (type === 'ap' ? S().payables : S().receivables)
+    .map(inv => ({ inv, party: partyOf(type, inv), st: invStatus(inv) }))
+    .filter(x => !k || [x.inv.id, x.inv.desc, x.party.name, x.party.sub].join(' ').toLowerCase().includes(k))
+    .filter(x => f === 'all' || (f === 'open' ? x.st !== 'paid' : f === 'overdue' ? x.st === 'overdue' : x.st === 'paid'))
+    .sort((a, b) => rank[a.st] - rank[b.st] || a.inv.due.localeCompare(b.inv.due));
+}
+
+function ledgerTable(type) {
+  const isAP = type === 'ap';
+  const list = ledgerList(type);
+  const all = isAP ? S().payables : S().receivables;
+  const f = ui.ledger[type];
+  const sum = (arr, fn) => arr.reduce((a, x) => a + fn(x.inv), 0);
+  const chips = [['all', 'Tất cả'], ['open', 'Chưa tất toán'], ['overdue', 'Quá hạn'], ['paid', 'Đã tất toán']];
+  const totalRemain = all.reduce((a, i) => a + remaining(i), 0);
+
+  return card(`
+    <div class="px-5 py-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center gap-3 justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl grid place-items-center ${isAP ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}">${icon(isAP ? 'arrow-up-right' : 'arrow-down-left', '!w-5 !h-5')}</div>
+        <div>
+          <h2 class="font-semibold text-slate-900">${isAP ? 'Phải trả Nhà cung cấp' : 'Phải thu Khách hàng'}</h2>
+          <p class="text-xs text-slate-500">${isAP ? 'Accounts Payable' : 'Accounts Receivable'} · ${all.length} hóa đơn · còn lại <b class="num ${isAP ? 'text-rose-600' : 'text-emerald-700'}">${fmtVND(totalRemain)}</b></p>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-1.5">
+        ${chips.map(([k, l]) => `<button data-action="ledger-filter" data-type="${type}" data-f="${k}" class="rounded-full px-3 py-1 text-xs font-medium transition ${f === k ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">${l}</button>`).join('')}
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm min-w-[980px]">
+        <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 border-b border-slate-200">
+          <tr>
+            <th class="px-4 py-3 text-left font-medium">Hóa đơn / Nội dung</th>
+            <th class="px-4 py-3 text-left font-medium">${isAP ? 'Nhà cung cấp' : 'Khách hàng / Dự án'}</th>
+            <th class="px-4 py-3 text-right font-medium">Tổng hóa đơn</th>
+            <th class="px-4 py-3 text-right font-medium">Đã thanh toán</th>
+            <th class="px-4 py-3 text-right font-medium">Còn lại</th>
+            <th class="px-4 py-3 text-left font-medium">Hạn thanh toán</th>
+            <th class="px-4 py-3 text-right font-medium"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${list.length ? list.map(({ inv, party, st }) => {
+            const rem = remaining(inv), pct = Math.round(inv.paid / inv.total * 100);
+            return `<tr class="hover:bg-slate-50/80 ${st === 'overdue' ? 'bg-rose-50/30' : ''}">
+              <td class="px-4 py-3 min-w-[220px]">
+                <div class="font-mono text-xs font-semibold text-slate-500">${esc(inv.id)}</div>
+                <div class="text-slate-800">${esc(inv.desc)}</div>
+              </td>
+              <td class="px-4 py-3 min-w-[200px]">
+                <div class="font-medium text-slate-800 truncate max-w-[240px]">${esc(party.name)}</div>
+                <div class="text-xs text-slate-500 truncate max-w-[240px]">${esc(party.sub)}</div>
+              </td>
+              <td class="px-4 py-3 text-right num whitespace-nowrap text-slate-700">${fmtVND(inv.total)}</td>
+              <td class="px-4 py-3 text-right num whitespace-nowrap">
+                <div class="text-slate-700">${fmtVND(inv.paid)}</div>
+                <div class="w-20 ml-auto mt-1">${progressBar(pct, 'bg-emerald-500', 'h-1')}</div>
+              </td>
+              <td class="px-4 py-3 text-right num whitespace-nowrap font-semibold ${rem ? (isAP ? 'text-rose-600' : 'text-slate-900') : 'text-emerald-600'}">${fmtVND(rem)}</td>
+              <td class="px-4 py-3 whitespace-nowrap">
+                <div class="text-slate-700 num">${fmtDate(inv.due)}</div>
+                <div class="mt-0.5">${statusBadge(inv)}</div>
+              </td>
+              <td class="px-4 py-3 text-right whitespace-nowrap">
+                <button data-action="pay" data-type="${type}" data-id="${esc(inv.id)}" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${rem ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">
+                  ${icon(rem ? 'banknote' : 'history')} ${rem ? 'Cập nhật TT' : 'Lịch sử'}
+                </button>
+              </td>
+            </tr>`;
+          }).join('') : `<tr><td colspan="7" class="px-6 py-12 text-center text-sm text-slate-400">Không có hóa đơn phù hợp</td></tr>`}
+        </tbody>
+        ${list.length ? `<tfoot class="bg-slate-50 border-t border-slate-200 text-sm">
+          <tr>
+            <td class="px-4 py-3 font-semibold text-slate-700" colspan="2">Cộng (${list.length} HĐ đang hiển thị)</td>
+            <td class="px-4 py-3 text-right num font-semibold text-slate-800">${fmtVND(sum(list, i => i.total))}</td>
+            <td class="px-4 py-3 text-right num font-semibold text-slate-800">${fmtVND(sum(list, i => i.paid))}</td>
+            <td class="px-4 py-3 text-right num font-semibold ${isAP ? 'text-rose-600' : 'text-emerald-700'}">${fmtVND(sum(list, remaining))}</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>` : ''}
+      </table>
+    </div>
+  `);
+}
+
+function renderLedger() {
+  const ap = S().payables.reduce((a, i) => a + remaining(i), 0);
+  const ar = S().receivables.reduce((a, i) => a + remaining(i), 0);
+  const net = ar - ap;
+  const stat = (label, value, cls, ic, bg) => `<div class="bg-white rounded-2xl border border-slate-200/80 shadow-card px-5 py-4 flex items-center gap-4">
+    <div class="w-10 h-10 rounded-xl grid place-items-center ${bg}">${icon(ic, '!w-5 !h-5')}</div>
+    <div><div class="text-xs text-slate-500">${label}</div><div class="text-lg font-semibold num ${cls}">${value}</div></div></div>`;
+  return `
+  <div class="space-y-5">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      ${stat('Tổng phải trả (còn lại)', fmtVND(ap), 'text-rose-600', 'arrow-up-right', 'bg-rose-50 text-rose-600')}
+      ${stat('Tổng phải thu (còn lại)', fmtVND(ar), 'text-emerald-700', 'arrow-down-left', 'bg-emerald-50 text-emerald-600')}
+      ${stat('Vị thế ròng (Thu − Trả)', (net >= 0 ? '+' : '') + fmtVND(net), net >= 0 ? 'text-slate-900' : 'text-rose-600', 'scale', 'bg-slate-900 text-white')}
+    </div>
+    <div class="relative max-w-md">
+      <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">${icon('search', '!w-4 !h-4')}</span>
+      <input id="ledger-search" type="search" value="${esc(ui.ledger.q)}" placeholder="Tìm số hóa đơn, đối tác, nội dung…" class="${inputCls} pl-9">
+    </div>
+    <div id="ledger-ap">${ledgerTable('ap')}</div>
+    <div id="ledger-ar">${ledgerTable('ar')}</div>
+  </div>`;
+}
+function refreshLedger() {
+  if (!$('#ledger-ap')) return;
+  $('#ledger-ap').innerHTML = ledgerTable('ap');
+  $('#ledger-ar').innerHTML = ledgerTable('ar');
+  refreshIcons();
+}
+
+/* ============ 8. MODALS ============ */
+
+/* ---- 8.1 Add / Edit Material ---- */
+function openMaterialModal(id) {
+  const isEdit = !!id;
+  const m = isEdit ? matById(id) : { code: '', name: '', category: ui.inv.cat !== 'all' ? ui.inv.cat : '', unit: '', stock: '', minStock: '', price: '', supplierId: '' };
+  if (!m) return;
+  openModal(`
+    <form id="mat-form" novalidate class="flex flex-col min-h-0">
+      ${modalHeader(isEdit ? 'Cập nhật vật tư' : 'Thêm vật tư mới', isEdit ? esc(m.code + ' · ' + m.name) : 'Khai báo mã vật tư mới vào kho', 'package')}
+      <div class="px-6 py-5 overflow-y-auto space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          ${field('code', 'Mã vật tư <span class="text-rose-500">*</span>', `<input id="f-code" name="code" class="${inputCls} font-mono uppercase" value="${esc(m.code)}" placeholder="VD: XM-003" autocomplete="off" maxlength="15">`)}
+          <div class="sm:col-span-2">${field('name', 'Tên vật tư <span class="text-rose-500">*</span>', `<input id="f-name" name="name" class="${inputCls}" value="${esc(m.name)}" placeholder="VD: Xi măng INSEE PCB40">`)}</div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          ${field('category', 'Nhóm vật tư <span class="text-rose-500">*</span>', `<select id="f-category" name="category" class="${inputCls}"><option value="">— Chọn nhóm —</option>${Object.keys(CATEGORIES).map(c => `<option ${m.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select>`)}
+          ${field('unit', 'Đơn vị tính <span class="text-rose-500">*</span>', `<select id="f-unit" name="unit" class="${inputCls}"><option value="">— Chọn ĐVT —</option>${UNITS.map(u => `<option ${m.unit === u ? 'selected' : ''}>${u}</option>`).join('')}</select>`)}
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          ${field('stock', 'Tồn kho hiện tại <span class="text-rose-500">*</span>', `<input id="f-stock" name="stock" type="number" step="any" min="0" inputmode="decimal" class="${inputCls} num" value="${m.stock}">`)}
+          ${field('minStock', 'Ngưỡng an toàn <span class="text-rose-500">*</span>', `<input id="f-minStock" name="minStock" type="number" step="any" min="0" inputmode="decimal" class="${inputCls} num" value="${m.minStock}">`, 'Cảnh báo khi tồn kho thấp hơn')}
+          ${field('price', 'Đơn giá (₫) <span class="text-rose-500">*</span>', `<input id="f-price" name="price" type="number" step="1" min="0" inputmode="numeric" class="${inputCls} num" value="${m.price}">`)}
+        </div>
+        ${field('supplierId', 'Nhà cung cấp chính', `<select id="f-supplierId" name="supplierId" class="${inputCls}"><option value="">— Không chỉ định —</option>${S().suppliers.map(s => `<option value="${s.id}" ${m.supplierId === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>`)}
+        <div id="mat-preview" class="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 grid grid-cols-2 gap-3 text-sm"></div>
+      </div>
+      ${modalFooter(`
+        ${isEdit ? `<button type="button" data-action="material-delete" data-id="${m.id}" class="inline-flex items-center gap-1.5 text-sm text-rose-600 hover:text-rose-700 font-medium">${icon('trash-2', '!w-4 !h-4')} Xóa</button>` : ''}
+        <div class="flex-1"></div>
+        <button type="button" class="${btnGhost}" data-action="close-modal">Hủy</button>
+        <button type="submit" class="${btnPrimary}">${icon('check', '!w-4 !h-4')} ${isEdit ? 'Lưu thay đổi' : 'Thêm vật tư'}</button>`)}
+    </form>`, 'max-w-2xl');
+
+  const form = $('#mat-form');
+  const numRule = (label, allowZero = true) => v => v === '' || isNaN(v) ? `Nhập ${label}` : (+v < 0 || (!allowZero && +v === 0)) ? `${label[0].toUpperCase() + label.slice(1)} phải ${allowZero ? '≥ 0' : '> 0'}` : null;
+  const rules = {
+    code: v => {
+      v = v.toUpperCase();
+      if (!v) return 'Bắt buộc nhập mã vật tư';
+      if (!/^[A-Z0-9-]{3,15}$/.test(v)) return 'Chỉ gồm chữ không dấu, số và "-" (3–15 ký tự)';
+      if (S().materials.some(x => x.code === v && x.id !== id)) return 'Mã vật tư đã tồn tại';
+      return null;
+    },
+    name: v => v.length < 3 ? 'Tên vật tư tối thiểu 3 ký tự' : v.length > 80 ? 'Tối đa 80 ký tự' : null,
+    category: v => !v ? 'Vui lòng chọn nhóm' : null,
+    unit: v => !v ? 'Vui lòng chọn đơn vị tính' : null,
+    stock: numRule('số lượng tồn'),
+    minStock: numRule('ngưỡng an toàn'),
+    price: numRule('đơn giá', false)
+  };
+  const preview = () => {
+    const st = +form.elements.stock.value || 0, pr = +form.elements.price.value || 0, mn = +form.elements.minStock.value || 0;
+    const lv = st <= 0 ? ['Hết hàng', 'text-rose-600'] : st < mn ? ['Dưới ngưỡng an toàn', 'text-amber-600'] : ['An toàn', 'text-emerald-600'];
+    $('#mat-preview').innerHTML = `
+      <div><div class="text-xs text-slate-500">Giá trị tồn kho</div><div class="font-semibold text-slate-900 num">${fmtVND(st * pr)}</div></div>
+      <div><div class="text-xs text-slate-500">Trạng thái</div><div class="font-semibold ${lv[1]}">${lv[0]}</div></div>`;
+  };
+  const validateAll = bindValidation(form, rules, preview);
+  preview();
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!validateAll()) { toast('Vui lòng kiểm tra lại các trường được đánh dấu', 'error'); return; }
+    const fd = Object.fromEntries(new FormData(form));
+    await API.saveMaterial({
+      id: id || null, code: fd.code.trim().toUpperCase(), name: fd.name.trim(), category: fd.category, unit: fd.unit,
+      stock: round3(+fd.stock), minStock: round3(+fd.minStock), price: Math.round(+fd.price), supplierId: fd.supplierId
+    });
+    closeModal();
+    toast(isEdit ? 'Đã cập nhật vật tư' : 'Đã thêm vật tư mới vào kho');
+    navigate(currentView, { keepScroll: true });
+  });
+}
+
+function confirmDeleteMaterial(id) {
+  const m = matById(id); if (!m) return;
+  const used = S().projects.filter(p => p.status !== 'completed' && p.alloc.some(a => a.m === id));
+  if (used.length) { toast(`Không thể xóa: "${m.name}" đang phân bổ cho ${used.length} dự án đang thi công`, 'error'); return; }
+  confirmDialog({
+    title: 'Xóa vật tư?', danger: true, confirmText: 'Xóa vật tư',
+    message: `Bạn có chắc muốn xóa <b class="text-slate-900">${esc(m.code)} – ${esc(m.name)}</b> khỏi danh mục kho? Giá trị tồn hiện tại: <b class="num">${fmtVND(matValue(m))}</b>.`,
+    onConfirm: async () => { await API.deleteMaterial(id); toast('Đã xóa vật tư'); navigate(currentView, { keepScroll: true }); }
+  });
+}
+
+/* ---- 8.2 Update Payment (with log) ---- */
+function openPaymentModal(type, id) {
+  const isAP = type === 'ap';
+  const inv = (isAP ? S().payables : S().receivables).find(x => x.id === id);
+  if (!inv) return;
+  const party = partyOf(type, inv);
+  const rem = remaining(inv);
+  const pct = Math.round(inv.paid / inv.total * 100);
+  const history = [...inv.payments].sort((a, b) => b.date.localeCompare(a.date));
+
+  openModal(`
+    <form id="pay-form" novalidate class="flex flex-col min-h-0">
+      ${modalHeader(isAP ? 'Thanh toán cho nhà cung cấp' : 'Ghi nhận khách hàng thanh toán', `${esc(inv.id)} · ${esc(party.name)}`, isAP ? 'arrow-up-right' : 'arrow-down-left', isAP ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600')}
+      <div class="overflow-y-auto">
+        <div class="px-6 py-5 space-y-4">
+          <div class="text-sm text-slate-600">${esc(inv.desc)}${party.sub ? ` <span class="text-slate-400">· ${esc(party.sub)}</span>` : ''}</div>
+          <div class="grid grid-cols-3 gap-3">
+            ${[['Tổng hóa đơn', fmtVND(inv.total), 'text-slate-900'], ['Đã thanh toán', fmtVND(inv.paid), 'text-emerald-700'], ['Còn lại', fmtVND(rem), rem ? 'text-rose-600' : 'text-emerald-600']]
+              .map(([l, v, c]) => `<div class="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5"><div class="text-[11px] text-slate-500">${l}</div><div class="text-sm font-semibold num ${c}">${v}</div></div>`).join('')}
+          </div>
+          <div>
+            <div class="flex justify-between text-xs text-slate-500 mb-1"><span>Tiến độ thanh toán</span><span>${pct}% · hạn ${fmtDate(inv.due)}</span></div>
+            ${progressBar(pct, 'bg-emerald-500', 'h-2')}
+          </div>
+
+          ${rem > 0 ? `
+          <div class="rounded-xl border border-slate-200 p-4 space-y-4">
+            <div class="text-sm font-semibold text-slate-800">Ghi nhận khoản thanh toán mới</div>
+            ${field('amount', 'Số tiền (₫) <span class="text-rose-500">*</span>', `
+              <input id="f-amount" name="amount" type="number" step="1" min="1" inputmode="numeric" class="${inputCls} num text-base" placeholder="0">
+              <div class="flex flex-wrap gap-1.5 mt-2">
+                ${[25, 50, 100].map(p => `<button type="button" data-action="pay-quick" data-pct="${p}" data-rem="${rem}" class="rounded-md bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-xs font-medium text-slate-600 px-2.5 py-1 transition">${p === 100 ? 'Toàn bộ' : p + '%'}</button>`).join('')}
+              </div>`, `<span id="amount-hint">Tối đa ${fmtVND(rem)}</span>`)}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              ${field('date', 'Ngày thanh toán <span class="text-rose-500">*</span>', `<input id="f-date" name="date" type="date" class="${inputCls}" value="${todayISO()}" max="${todayISO()}">`)}
+              ${field('method', 'Hình thức <span class="text-rose-500">*</span>', `<select id="f-method" name="method" class="${inputCls}">${PAY_METHODS.map(m => `<option>${m}</option>`).join('')}</select>`)}
+            </div>
+            ${field('note', 'Ghi chú / Số chứng từ', `<input id="f-note" name="note" class="${inputCls}" placeholder="VD: UNC số 0457 – Vietcombank" maxlength="120">`)}
+          </div>` : `
+          <div class="rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm px-4 py-3 flex items-center gap-2">${icon('circle-check', '!w-4 !h-4')} Hóa đơn đã được tất toán đầy đủ.</div>`}
+        </div>
+
+        <div class="px-6 pb-5">
+          <div class="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-3">${icon('history', '!w-4 !h-4 text-slate-400')} Nhật ký thanh toán <span class="text-xs font-normal text-slate-400">(${history.length})</span></div>
+          ${history.length ? `<ol class="relative border-l border-slate-200 ml-2 space-y-3">
+            ${history.map(p => `<li class="ml-4">
+              <span class="absolute -left-[5px] mt-1.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white"></span>
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-sm font-semibold num text-slate-900">${fmtVND(p.amount)}</span>
+                <span class="text-xs text-slate-500 num">${fmtDate(p.date)}</span>
+              </div>
+              <div class="text-xs text-slate-500">${esc(p.method)}${p.note ? ' · ' + esc(p.note) : ''}</div>
+            </li>`).join('')}
+          </ol>` : `<div class="text-sm text-slate-400 bg-slate-50 rounded-xl px-4 py-3">Chưa có khoản thanh toán nào</div>`}
+        </div>
+      </div>
+      ${modalFooter(`<div class="flex-1"></div>
+        <button type="button" class="${btnGhost}" data-action="close-modal">${rem > 0 ? 'Hủy' : 'Đóng'}</button>
+        ${rem > 0 ? `<button type="submit" class="${btnPrimary}">${icon('check', '!w-4 !h-4')} Xác nhận thanh toán</button>` : ''}`)}
+    </form>`, 'max-w-xl');
+
+  if (rem <= 0) return;
+  const form = $('#pay-form');
+  const rules = {
+    amount: v => v === '' || isNaN(v) || +v <= 0 ? 'Nhập số tiền lớn hơn 0' : !Number.isInteger(+v) ? 'Số tiền phải là số nguyên (đồng)' : +v > rem ? `Vượt số còn lại (${fmtVND(rem)})` : null,
+    date: v => !v ? 'Chọn ngày thanh toán' : v > todayISO() ? 'Không được chọn ngày tương lai' : v < inv.issued ? 'Trước ngày xuất hóa đơn' : null,
+    method: v => !v ? 'Chọn hình thức' : null
+  };
+  const hint = () => {
+    const a = +form.elements.amount.value || 0;
+    $('#amount-hint').innerHTML = a > 0 && a <= rem
+      ? `= <b class="text-slate-700">${fmtVND(a)}</b> · còn lại sau thanh toán: <b class="${rem - a ? 'text-slate-700' : 'text-emerald-600'}">${fmtVND(rem - a)}</b>`
+      : `Tối đa ${fmtVND(rem)}`;
+  };
+  const validateAll = bindValidation(form, rules, hint);
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!validateAll()) return;
+    const fd = Object.fromEntries(new FormData(form));
+    try {
+      await API.recordPayment(type, id, { amount: +fd.amount, date: fd.date, method: fd.method, note: fd.note.trim() });
+      closeModal();
+      toast(`Đã ghi nhận ${fmtVND(+fd.amount)} cho ${inv.id}`);
+      navigate(currentView, { keepScroll: true });
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+/* ---- 8.3 Allocate materials to project (Xuất kho) ---- */
+function openAllocateModal(pid) {
+  const p = prjById(pid); if (!p) return;
+  const mats = [...S().materials].sort((a, b) => a.category.localeCompare(b.category, 'vi') || a.name.localeCompare(b.name, 'vi'));
+  openModal(`
+    <form id="alloc-form" novalidate class="flex flex-col min-h-0">
+      ${modalHeader('Xuất vật tư cho công trình', esc(p.code + ' · ' + p.name), 'truck', 'bg-slate-900 text-white')}
+      <div class="px-6 py-5 overflow-y-auto space-y-4">
+        ${field('mat', 'Vật tư <span class="text-rose-500">*</span>', `<select id="f-mat" name="mat" class="${inputCls}"><option value="">— Chọn vật tư —</option>
+          ${Object.keys(CATEGORIES).map(c => `<optgroup label="${c}">${mats.filter(m => m.category === c).map(m => `<option value="${m.id}" ${m.stock <= 0 ? 'disabled' : ''}>${esc(m.name)} — tồn ${fmtNum(m.stock)} ${esc(m.unit)}</option>`).join('')}</optgroup>`).join('')}</select>`)}
+        ${field('qty', 'Số lượng xuất <span class="text-rose-500">*</span>', `<input id="f-qty" name="qty" type="number" step="any" min="0" inputmode="decimal" class="${inputCls} num" placeholder="0">`, '<span id="qty-hint">Chọn vật tư để xem tồn kho khả dụng</span>')}
+        ${field('note', 'Ghi chú (số phiếu xuất, xe vận chuyển…)', `<input id="f-note" name="note" class="${inputCls}" placeholder="VD: PXK-0923 · Xe 51D-123.45" maxlength="120">`)}
+        <div class="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-xs text-slate-500 flex gap-2">${icon('info', '!w-4 !h-4 text-slate-400 mt-0.5')} Số lượng xuất sẽ được trừ trực tiếp khỏi tồn kho và cộng vào khối lượng đã sử dụng của dự án.</div>
+      </div>
+      ${modalFooter(`<div class="flex-1"></div>
+        <button type="button" class="${btnGhost}" data-action="close-modal">Hủy</button>
+        <button type="submit" class="${btnPrimary}">${icon('check', '!w-4 !h-4')} Xác nhận xuất kho</button>`)}
+    </form>`, 'max-w-lg');
+
+  const form = $('#alloc-form');
+  const selMat = () => matById(form.elements.mat.value);
+  const rules = {
+    mat: v => !v ? 'Chọn vật tư cần xuất' : null,
+    qty: v => {
+      const m = selMat();
+      if (v === '' || isNaN(v) || +v <= 0) return 'Nhập số lượng lớn hơn 0';
+      if (m && +v > m.stock) return `Vượt tồn kho (${fmtNum(m.stock)} ${m.unit})`;
+      return null;
+    }
+  };
+  const onChange = (name, check) => {
+    const m = selMat();
+    const q = +form.elements.qty.value || 0;
+    $('#qty-hint').innerHTML = m
+      ? `Khả dụng: <b class="text-slate-700 num">${fmtNum(m.stock)} ${esc(m.unit)}</b>${q > 0 && q <= m.stock ? ` · tồn sau xuất: <b class="${m.stock - q < m.minStock ? 'text-amber-600' : 'text-slate-700'} num">${fmtNum(round3(m.stock - q))}</b>${m.stock - q < m.minStock ? ' (dưới ngưỡng)' : ''} · giá trị ${fmtVND(q * m.price)}` : ''}`
+      : 'Chọn vật tư để xem tồn kho khả dụng';
+    if (name === 'mat' && form.elements.qty.value !== '') check('qty');
+  };
+  const validateAll = bindValidation(form, rules, onChange);
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!validateAll()) return;
+    const m = selMat(), qty = round3(+form.elements.qty.value);
+    try {
+      await API.allocateMaterial(pid, m.id, qty, form.elements.note.value.trim());
+      closeModal();
+      toast(`Đã xuất ${fmtNum(qty)} ${m.unit} ${m.name}`);
+      navigate(currentView, { keepScroll: true });
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+/* ---- 8.4 Add Supplier ---- */
+function openSupplierModal() {
+  openModal(`
+    <form id="sup-form" novalidate class="flex flex-col min-h-0">
+      ${modalHeader('Thêm nhà cung cấp', 'Hồ sơ đối tác cung ứng vật tư', 'factory')}
+      <div class="px-6 py-5 overflow-y-auto space-y-4">
+        ${field('name', 'Tên công ty <span class="text-rose-500">*</span>', `<input id="f-name" name="name" class="${inputCls}" placeholder="VD: Công ty TNHH VLXD Hưng Thịnh">`)}
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          ${field('contact', 'Người liên hệ <span class="text-rose-500">*</span>', `<input id="f-contact" name="contact" class="${inputCls}" placeholder="Họ và tên">`)}
+          ${field('phone', 'Số điện thoại <span class="text-rose-500">*</span>', `<input id="f-phone" name="phone" type="tel" class="${inputCls} num" placeholder="09xx xxx xxx">`)}
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          ${field('type', 'Nhóm hàng chính <span class="text-rose-500">*</span>', `<select id="f-type" name="type" class="${inputCls}"><option value="">— Chọn nhóm —</option>${Object.keys(CATEGORIES).map(c => `<option>${c}</option>`).join('')}</select>`)}
+          ${field('terms', 'Thời hạn công nợ (ngày) <span class="text-rose-500">*</span>', `<input id="f-terms" name="terms" type="number" min="0" max="180" class="${inputCls} num" value="30">`)}
+        </div>
+        ${field('address', 'Địa chỉ', `<input id="f-address" name="address" class="${inputCls}" placeholder="Quận/huyện, Tỉnh/thành">`)}
+      </div>
+      ${modalFooter(`<div class="flex-1"></div>
+        <button type="button" class="${btnGhost}" data-action="close-modal">Hủy</button>
+        <button type="submit" class="${btnPrimary}">${icon('check', '!w-4 !h-4')} Lưu nhà cung cấp</button>`)}
+    </form>`, 'max-w-xl');
+  const form = $('#sup-form');
+  const rules = {
+    name: v => v.length < 5 ? 'Tên công ty tối thiểu 5 ký tự' : S().suppliers.some(s => s.name.toLowerCase() === v.toLowerCase()) ? 'Nhà cung cấp đã tồn tại' : null,
+    contact: v => v.length < 2 ? 'Nhập tên người liên hệ' : null,
+    phone: v => !/^0\d{9,10}$/.test(v.replace(/[\s.-]/g, '')) ? 'SĐT không hợp lệ (10–11 số, bắt đầu bằng 0)' : null,
+    type: v => !v ? 'Chọn nhóm hàng' : null,
+    terms: v => v === '' || isNaN(v) || +v < 0 || +v > 180 ? 'Từ 0 đến 180 ngày' : null
+  };
+  const validateAll = bindValidation(form, rules);
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!validateAll()) return;
+    const fd = Object.fromEntries(new FormData(form));
+    await API.saveSupplier({ name: fd.name.trim(), contact: fd.contact.trim(), phone: fd.phone.trim(), types: [fd.type], terms: +fd.terms, address: fd.address.trim() });
+    closeModal();
+    toast('Đã thêm nhà cung cấp');
+    navigate(currentView, { keepScroll: true });
+  });
+}
+
+/* ============ 9. ROUTER & EVENTS ============ */
+const VIEWS = {
+  dashboard: { title: 'Tổng quan', sub: 'Bức tranh tài chính & vận hành theo thời gian thực', icon: 'layout-dashboard', en: 'Overview', render: renderDashboard },
+  inventory: { title: 'Kho vật tư', sub: 'Danh mục, tồn kho và giá trị vật tư xây dựng', icon: 'boxes', en: 'Inventory', render: renderInventory },
+  projects:  { title: 'Dự án & Điều phối', sub: 'Tiến độ công trình và vật tư phân bổ theo công trường', icon: 'hard-hat', en: 'Projects & Logistics', render: renderProjects },
+  suppliers: { title: 'Nhà cung cấp', sub: 'Hồ sơ đối tác và dư nợ phải trả hiện tại', icon: 'truck', en: 'Suppliers', render: renderSuppliers },
+  ledger:    { title: 'Sổ công nợ', sub: 'Phải trả nhà cung cấp · Phải thu khách hàng', icon: 'wallet', en: 'Debt Ledger', render: renderLedger }
+};
+let currentView = 'dashboard';
+
+function renderNav() {
+  const A = getAlerts();
+  const badges = { inventory: A.lowStock.length, ledger: A.overdue.length, projects: A.delays.length };
+  $('#nav').innerHTML = `<div class="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Điều hướng</div>` +
+    Object.entries(VIEWS).map(([k, v]) => {
+      const active = k === currentView;
+      return `<button data-action="nav" data-view="${k}" class="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition group
+        ${active ? 'bg-emerald-500/10 text-white ring-1 ring-inset ring-emerald-400/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}">
+        <span class="${active ? 'text-emerald-400' : 'text-slate-500 group-hover:text-slate-300'}">${icon(v.icon, '!w-[18px] !h-[18px]')}</span>
+        <span class="flex-1 text-left leading-tight"><span class="block font-medium">${v.title}</span><span class="block text-[11px] ${active ? 'text-emerald-300/70' : 'text-slate-500'}">${v.en}</span></span>
+        ${badges[k] ? `<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-semibold grid place-items-center ${k === 'inventory' ? 'bg-amber-500/20 text-amber-300' : k === 'projects' ? 'bg-orange-500/20 text-orange-300' : 'bg-rose-500/20 text-rose-300'}">${badges[k]}</span>` : ''}
+      </button>`;
+    }).join('');
+  const b = $('#bell-badge');
+  b.textContent = A.total; b.classList.toggle('hidden', !A.total);
+}
+
+function navigate(view, { keepScroll = false } = {}) {
+  if (!VIEWS[view]) view = 'dashboard';
+  const changed = view !== currentView;
+  currentView = view;
+  const main = $('#view');
+  const y = window.scrollY;
+  main.classList.remove('view-enter');
+  main.innerHTML = VIEWS[view].render();
+  if (!keepScroll || changed) { void main.offsetWidth; main.classList.add('view-enter'); }
+  $('#page-title').textContent = VIEWS[view].title;
+  $('#page-sub').textContent = VIEWS[view].sub;
+  document.title = `${VIEWS[view].title} · BuildLedger`;
+  renderNav();
+  refreshIcons();
+  if (keepScroll && !changed) window.scrollTo(0, y); else window.scrollTo(0, 0);
+  if (history.replaceState) history.replaceState(null, '', '#' + view);
+  toggleSidebar(false);
+}
+
+function toggleSidebar(force) {
+  const sb = $('#sidebar'), ov = $('#sidebar-overlay');
+  const open = typeof force === 'boolean' ? force : sb.classList.contains('-translate-x-full');
+  sb.classList.toggle('-translate-x-full', !open);
+  ov.classList.toggle('hidden', !open);
+}
+
+// ---- Click delegation ----
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-action]');
+  if (!t) return;
+  const d = t.dataset;
+  switch (d.action) {
+    case 'nav': navigate(d.view); break;
+    case 'toggle-sidebar': toggleSidebar(); break;
+    case 'close-modal': closeModal(); break;
+    case 'material-new': openMaterialModal(); break;
+    case 'material-edit': openMaterialModal(d.id); break;
+    case 'material-delete': closeModal(); setTimeout(() => confirmDeleteMaterial(d.id), $('#modal-root').innerHTML ? 220 : 0); break;
+    case 'sort':
+      if (ui.inv.sort === d.key) ui.inv.dir *= -1; else { ui.inv.sort = d.key; ui.inv.dir = 1; }
+      refreshInventoryTable(); break;
+    case 'goto-inv-low': Object.assign(ui.inv, { level: 'low', cat: 'all', q: '' }); navigate('inventory'); break;
+    case 'proj-filter': ui.projFilter = d.f; navigate('projects', { keepScroll: true }); break;
+    case 'allocate': openAllocateModal(d.id); break;
+    case 'supplier-new': openSupplierModal(); break;
+    case 'supplier-ledger': Object.assign(ui.ledger, { q: d.name, ap: 'all' }); navigate('ledger'); break;
+    case 'ledger-filter': ui.ledger[d.type] = d.f; refreshLedger(); break;
+    case 'pay': openPaymentModal(d.type, d.id); break;
+    case 'pay-quick': {
+      const input = $('#f-amount');
+      input.value = Math.round(+d.rem * +d.pct / 100);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      break;
+    }
+    case 'reset-data':
+      confirmDialog({
+        title: 'Khôi phục dữ liệu mẫu?', danger: true, confirmText: 'Khôi phục',
+        message: 'Toàn bộ thay đổi (vật tư, thanh toán, xuất kho, nhà cung cấp) sẽ bị xóa và thay bằng dữ liệu mẫu ban đầu.',
+        onConfirm: () => { Store.reset(); toast('Đã khôi phục dữ liệu mẫu', 'info'); navigate(currentView); }
+      });
+      break;
+  }
+});
+
+// ---- Live search / filter inputs ----
+document.addEventListener('input', e => {
+  switch (e.target.id) {
+    case 'inv-search': ui.inv.q = e.target.value; refreshInventoryTable(); break;
+    case 'sup-search': ui.sup.q = e.target.value; $('#sup-list').innerHTML = supplierRows(); refreshIcons(); break;
+    case 'ledger-search': ui.ledger.q = e.target.value; refreshLedger(); break;
+  }
+});
+document.addEventListener('change', e => {
+  if (e.target.id === 'inv-cat') { ui.inv.cat = e.target.value; refreshInventoryTable(); }
+  if (e.target.id === 'inv-level') { ui.inv.level = e.target.value; refreshInventoryTable(); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); toggleSidebar(false); } });
+window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (VIEWS[v] && v !== currentView) navigate(v); });
+
+// ---- Boot ----
+(async function init() {
+  Store.load();
+  await API.fetchAll(); // TODO(API): thay bằng tải dữ liệu từ server, hiển thị skeleton khi chờ
+  $('#today-label').innerHTML = `${icon('calendar', '!w-4 !h-4')} ${new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+  const start = location.hash.slice(1);
+  navigate(VIEWS[start] ? start : 'dashboard');
+})();
+</script>
+</body>
+</html>
